@@ -1,0 +1,3 @@
+/home/dandan/introToOS/wet1_nice/cmake-build-debug/CMakeFiles/smash.dir
+/home/dandan/introToOS/wet1_nice/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/dandan/introToOS/wet1_nice/cmake-build-debug/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,1 @@
+/usr/bin/c++ -g CMakeFiles/smash.dir/smash.cpp.o CMakeFiles/smash.dir/Commands.cpp.o CMakeFiles/smash.dir/signals.cpp.o CMakeFiles/smash.dir/helper.cpp.o -o smash  -lstdc++fs 

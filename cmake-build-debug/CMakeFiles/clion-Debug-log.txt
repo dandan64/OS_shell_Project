@@ -1,0 +1,4 @@
+/usr/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "Unix Makefiles" -S /home/dandan/introToOS/wet1_nice -B /home/dandan/introToOS/wet1_nice/cmake-build-debug
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/dandan/introToOS/wet1_nice/cmake-build-debug

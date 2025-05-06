@@ -1,0 +1,2 @@
+/home/dandan/introToOS/wet1_nice/cmake-build-debug
+smash pid is 622939
