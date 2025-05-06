@@ -116,7 +116,7 @@ std::unique_ptr<Command> SmallShell::createCommandHandler(string args_cmd[], con
     else if (args_cmd[0] == "netinfo"){
         return make_unique<NetInfo>(args_cmd, numOfArgs, *this);
     }
-    else if(isExternalCommand(args_cmd[0])) {
+    else {
         return make_unique<ExternalCommand>(args_cmd, og_cmd, numOfArgs, *this, is_bg_cmd);
     }
     return nullptr;
