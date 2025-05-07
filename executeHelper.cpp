@@ -1,14 +1,9 @@
-//
-// Created by ddben on 03/05/2025.
-//
-
 #include "executeHelper.h"
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <sstream>
 #include <sys/wait.h>
 #include <iomanip>
 #include "Commands.h"
@@ -31,17 +26,21 @@ void ForegroundCommand::executeFgByID(){
     std::string job_id_s = this->getCmdArgs()[1];
     try {
         int job_id = stoi(job_id_s);
-        if (!this->m_small_shell.getJobsList().getJobById(job_id)) {
+        if (this->m_small_shell.getJobsList().getJobById(job_id) == nullptr) {
             std::cerr << "smash error: fg: job-id " << job_id << " does not exist" << std::endl;
             return;
         }
         auto job = this->m_small_shell.getJobsList().getJobById(job_id);
         std::cout << job->getCommand() << " " << job->getPid() << std::endl;
+        this->m_small_shell.setFgProcPID(job->getPid());
+
         waitpid(job->getPid(), nullptr, 0);
+
         this->m_small_shell.getJobsList().removeJobById(job->getJobId());
         if(job_id == this->m_small_shell.getJobsList().getMaxId()){
             this->m_small_shell.getJobsList().updateMaxJobId();
         }
+        this->m_small_shell.setFgProcPID(0);
     }
     catch(...){
         std::cerr << "smash error: fg: invalid arguments" << std::endl;
@@ -54,10 +53,14 @@ void ForegroundCommand::executeLastId(){
         return;
     }
     auto job = this->m_small_shell.getJobsList().getLastJob();
+    this->m_small_shell.setFgProcPID(job->getPid());
+
     std::cout << job->getCommand() << " " << job->getPid() << std::endl;
     waitpid(job->getPid(), nullptr,0);
     this->m_small_shell.getJobsList().removeJobById(job->getJobId());
     this->m_small_shell.getJobsList().updateMaxJobId();
+
+    this->m_small_shell.setFgProcPID(0);
 }
 
 

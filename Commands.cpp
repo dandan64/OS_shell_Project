@@ -1,9 +1,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
-#include <fstream>
 #include <vector>
-#include <sstream>
 #include <sys/wait.h>
 #include <iomanip>
 #include "Commands.h"
@@ -15,8 +13,8 @@
 #include <cmath>
 #include <experimental/filesystem>
 #include <sys/stat.h>
-#include <memory>
-#include "helper.h"
+// TODO :: ADD FOR THE MAKE DANIEL MADE , REPLACE TO .H FOR CLION CMAKE
+#include "helper.cpp"
 #include "CommandLittleHelprs.cpp"
 #include "executeHelper.cpp"
 #include <sys/ioctl.h>
@@ -29,7 +27,7 @@
 
 using namespace std;
 
-const std::string WHITESPACE = " \n\r\t\f\v";
+//const std::string WHITESPACE = " \n\r\t\f\v";
 
 // TODO : NEED TO ADD SPECIAL COMMANDS AS WELL - LATER
 //const std::vector<std::string> RESERVED_COMMANDS = {"chprompt", "showpid", "pwd", "cd", "jobs", "fg",
@@ -157,6 +155,9 @@ std::unique_ptr<Command> SmallShell::CreateCommand(const char *cmd_line) {
 
 void SmallShell::executeCommand(const char *cmd_line) {
     // TODO: Add your implementation here
+    if(*cmd_line == '\0'){
+        return;
+    }
     std::unique_ptr<Command> cmd = CreateCommand((cmd_line));
     if (cmd != nullptr) {
         this->getJobsList().removeFinishedJobs();
@@ -164,8 +165,6 @@ void SmallShell::executeCommand(const char *cmd_line) {
     }
 
     this->restoreStdOut();
-//    this->restoreStdErr();
-//    this->restoreStdIn();
 }
 
 // Implementing execute for all the commands:
@@ -248,7 +247,6 @@ void UnAliasCommand::execute(){
 
 void UnSetEnvCommand::execute() {
     std::vector<char> environ_vector = environ_file_to_vector();
-    std::ifstream in("/proc/self/environ", std::ios::binary);
 
 
     std::vector<std::string> env_names = extract_env_var_names(environ_vector);
@@ -285,7 +283,6 @@ double WatchProcCommand::calculateCpuUsege(int pid){
         return -1;
     }
 
-//    std::this_thread::sleep_for(std::chrono::seconds(1));
     struct timespec duration{};
     duration.tv_sec = 1;
     duration.tv_nsec = 0;
@@ -447,6 +444,7 @@ void ForegroundCommand::execute() {
     }
     else if (this->getNumOfArgs() < 2) {
         executeLastId();
+        return;
     }
     else {
         executeFgByID();
@@ -477,8 +475,13 @@ void KillCommand::execute() {
 
     if(this->getCmdArgs()[1][0] == '-'){
         try{
+
             int signum = atoi(const_cast<char*>(&this->getCmdArgs()[1][1]));
             int jobId = stoi(this->getCmdArgs()[2]);
+            if(jobId <= 0){
+                std::cerr << "smash error: kill: invalid arguments" << std::endl;
+                return;
+            }
             auto jobEntry = this->m_small_shell.getJobsList().getJobById(jobId);
             if(jobEntry == nullptr){
                 std::cout << "smash error: kill: job-id " << jobId << " does not exist" << std::endl;
@@ -556,11 +559,7 @@ uintmax_t   diskUsageWrapper(const std::experimental::filesystem::path& path){
 
     uintmax_t disk_usage = sb.st_blocks;
 
-//    for (const auto& entry : std::experimental::filesystem::directory_iterator(path)) {
-//        if(is_directory(entry.path())){
-//            disk_usage += diskUsageWrapper(entry.path());
-//        }
-//    }
+
     if (S_ISDIR(sb.st_mode)) {
         for (auto const& entry : std::experimental::filesystem::directory_iterator(path)) {
             disk_usage += diskUsageWrapper(entry.path());
@@ -593,24 +592,62 @@ void DiskUsageCommand::execute() {
 
 void WhoAmICommand::execute() {
     uid_t user_id = getuid();
-
-    std::ifstream iss("/etc/passwd");
-    std::string line;
-    std::string user, uid, path;
-
-    while (std::getline(iss, line)) {
-        std::istringstream line_s(line);
-        std::getline(line_s, user, ':');
-        std::getline(line_s, uid, ':');
-        std::getline(line_s, uid, ':');
-        if (user_id == uid_t(stoi(uid))) {
-            for (int i = 0; i < 3; i++) {
-                std::getline(line_s,path, ':');
-            }
-            break;
-        }
+    std::string content;
+    try {
+        readFileContent("/etc/passwd", content);
+    } catch (const std::exception& ex) {
+        std::perror("readFileContent failed");
+        return;
     }
-    std::cout << user << " " << path << std::endl;
+
+    std::string user, path;
+    for (auto& line : splitLines(content)) {
+        size_t field_start = 0, field_end;
+
+        // username
+        field_end = line.find(':', field_start);
+        if (field_end == std::string::npos) continue;
+        std::string name = line.substr(field_start, field_end - field_start);
+
+        // skip password
+        field_start = field_end + 1;
+        field_end = line.find(':', field_start);
+        if (field_end == std::string::npos) continue;
+
+        // uid field
+        field_start = field_end + 1;
+        field_end = line.find(':', field_start);
+        if (field_end == std::string::npos) continue;
+        std::string uid_str = line.substr(field_start, field_end - field_start);
+
+        // match against current UID
+        if (static_cast<uid_t>(std::stoi(uid_str)) != user_id)
+            continue;
+
+        // skip gid and gecos (3 more colons)
+        // TODO: maybe till i < 2 ?
+        for (int i = 0; i < 3; ++i) {
+            field_start = field_end + 1;
+            field_end = line.find(':', field_start);
+            if (field_end == std::string::npos) break;
+        }
+
+        // home directory
+        if (field_start < line.size()) {
+            field_end = line.find(':', field_start);
+            if (field_end == std::string::npos)
+                path = line.substr(field_start);
+            else
+                path = line.substr(field_start, field_end - field_start);
+        }
+
+        user = name;
+        break;
+    }
+
+    if (!user.empty()) {
+        std::cout << user << " " << path << "\n";
+    }
 }
 
 void PipeCommand::execute() {
@@ -706,11 +743,8 @@ void NetInfo::execute() {
 
     close(fd);
 
-    // TODO: Get default gateway
+    std::string gateway;  // result buffer
 
-    std::string gateway;                            // result buffer
-
-// 3) Default Gateway via /proc/net/route using syscalls only
     int fd_gateway = open("/proc/net/route", O_RDONLY);
     if (fd_gateway < 0) {
         perror("smash error: open /proc/net/route");
@@ -731,23 +765,20 @@ void NetInfo::execute() {
         // skip header
         if ((next = strchr(line, '\n'))) line = next + 1;
         while (line && *line) {
-            // split out the first three whitespace-separated fields:
-            //  iface   destHex   gateHex   …
+
             char *p = line;
-            // 1) iface
+
             char *f_iface = p;
             while (*p && *p!=' ' && *p!='\t') ++p;
             bool hasIfaceField = (*p==' '||*p=='\t');
             if (hasIfaceField) *p++ = '\0';
 
-            // 2) destHex
             while (*p==' '||*p=='\t') ++p;
             char *f_dest = p;
             while (*p && *p!=' ' && *p!='\t') ++p;
             bool hasDestField = (*p==' '||*p=='\t');
             if (hasDestField) *p++ = '\0';
 
-            // 3) gateHex
             while (*p==' '||*p=='\t') ++p;
             char *f_gate = p;
             while (*p && *p!=' ' && *p!='\t' && *p!='\n') ++p;
@@ -791,21 +822,44 @@ void NetInfo::execute() {
 
     std::cout << "Default Gateway: " << gateway <<std::endl;
 
-    // Get DNS servers
-    std::ifstream resolv("/etc/resolv.conf");
-    std::string line;
-    std::vector<std::string> dns;
 
-    while (std::getline(resolv, line)) {
-        if (line.rfind("nameserver", 0) == 0) {
-            std::istringstream iss(line);
-            std::string keyword, ip;
-            iss >> keyword >> ip;
-            dns.push_back(ip);
-        }
+    std::string content;
+    try{
+        readFileContent("/etc/resolv.conf", content);
+    } catch (...) {
+        std::perror("smash error: read failed");
+        return;
     }
-    for (int i = 0; i < dns.size() - 1; i++) {
+
+    std::vector<std::string> dns;
+    for (auto& line : splitLines(content)) {
+        // skip empty lines or comments
+        if (line.empty() || line[0] == '#')
+            continue;
+        // look for “nameserver” at the start
+        if (line.rfind("nameserver", 0) != 0)
+            continue;
+
+        // find first space/tab after the keyword
+        size_t key_end = line.find_first_of(" \t", /*start=*/0 + strlen("nameserver"));
+        if (key_end == std::string::npos)
+            continue;
+        // skip any additional whitespace to the IP
+        size_t ip_start = line.find_first_not_of(" \t", key_end);
+        if (ip_start == std::string::npos)
+            continue;
+        // find end of IP token
+        size_t ip_end = line.find_first_of(" \t", ip_start);
+
+        std::string ip = (ip_end == std::string::npos
+                          ? line.substr(ip_start)
+                          : line.substr(ip_start, ip_end - ip_start));
+        dns.push_back(ip);
+    }
+
+    // print comma-separated, with label
+    for (size_t i = 0; i + 1 < dns.size(); ++i) {
         std::cout << "DNS Servers: " << dns[i] << ", ";
     }
-    std::cout << "DNS Servers: " << dns[dns.size() - 1] << std::endl;
+    std::cout << "DNS Servers: " << dns.back() << std::endl;
 }

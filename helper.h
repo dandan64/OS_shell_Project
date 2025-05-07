@@ -30,5 +30,8 @@ std::string _ltrim(const std::string &s);
 uint64_t get_total_cpu_time();
 std::vector<std::string> charArrayToVector(char* arr[], std::size_t length);
 std::string* vectorToStringArray(const std::vector<std::string>& vec);
+std::vector<std::string> splitLines(const std::string& s);
+void readFileContent(const std::string& path, std::string& content);
+std::vector<std::string> splitTokens(const std::string& s);
 
 #endif //SMASH_HELPER_H

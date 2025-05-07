@@ -22,10 +22,7 @@
 using namespace std;
 const std::string WHITESPACE = " \n\r\t\f\v";
 
-// TODO : NEED TO ADD SPECIAL COMMANDS AS WELL - LATER
-//const std::vector<std::string> RESERVED_COMMANDS = {"chprompt", "showpid", "pwd", "cd", "jobs", "fg",
-//                                                    "quit", "kill", "alias", "unalias", "unsetenv", "watchproc"};
-//
+
 
 #if 0
 #define FUNC_ENTRY()  \
@@ -68,6 +65,21 @@ std::size_t _parseCommandLine(const char *cmd_line, char **args) {
     FUNC_EXIT()
 }
 
+std::vector<std::string> splitTokens(const std::string& s) {
+    std::vector<std::string> toks;
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        // skip spaces
+        while (i < n && isspace(static_cast<unsigned char>(s[i]))) i++;
+        if (i >= n) break;
+        size_t j = i;
+        while (j < n && !isspace(static_cast<unsigned char>(s[j]))) j++;
+        toks.emplace_back(s.substr(i, j - i));
+        i = j;
+    }
+    return toks;
+}
+
 bool _isBackgroundComamnd(const char *cmd_line) {
     const string str(cmd_line);
     return str[str.find_last_not_of(WHITESPACE)] == '&';
@@ -96,7 +108,6 @@ void charPtrArrayToStringArray(char* const src[],
                                std::size_t n)
 {
     for (std::size_t i = 0; i < n; ++i) {
-        // if src[i] is nullptr, make dest[i] an empty string
         dest[i] = src[i] ? src[i] : "";
     }
 }
@@ -121,12 +132,16 @@ std::vector<std::string> extract_env_var_names(const std::vector<char>& env_file
 }
 
 std::vector<char> environ_file_to_vector() {
+    // build the path to /proc/<pid>/environ
+    const std::string path = "/proc/" + std::to_string(getpid()) + "/environ";
 
-    std::string environ_path = "/proc/" + to_string(getpid()) + "/environ";
-    std::ifstream environ_file(environ_path, std::ios::binary);
-    std::vector<char> environ_vector((std::istreambuf_iterator<char>(environ_file)),
-                                     (std::istreambuf_iterator<char>())); // vector is filled with the file content
-    return environ_vector;
+    // read the entire file into a string (throws on error)
+    std::string raw;
+
+    readFileContent(path, raw);
+
+    // move its bytes into a vector<char>
+    return std::vector<char>(raw.begin(), raw.end());
 }
 
 void remove_env_var(const std::string& varname) {
@@ -145,75 +160,82 @@ void remove_env_var(const std::string& varname) {
     }
 }
 
-//TODO : !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 uint64_t get_total_cpu_time() {
-    std::ifstream stat_file("/proc/stat");
-    std::string line;
-    std::getline(stat_file, line);
+    std::string content;
+    try {
+        readFileContent("/proc/stat", content);
+    } catch (...) {
+        return 0;
+    }
 
-    std::istringstream iss(line);
-    std::string cpu_label;
-    uint64_t user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice;
-    iss >> cpu_label >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal >> guest >> guest_nice;
+    auto lines = splitLines(content);
+    if (lines.empty()){
+        return 0;
+    }
+    const std::string& first = lines[0];
 
-    return user + nice + system + idle + iowait + irq + softirq + steal + guest + guest_nice;
+    // Tokenize on whitespace
+    auto toks = splitTokens(first);
+    // toks[0] == "cpu", then user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice
+    if (toks.size() < 11) return 0;
+
+    // Sum fields 1..10
+    uint64_t total = 0;
+    for (size_t idx = 1; idx <= 10; ++idx) {
+        total += std::stoull(toks[idx]);
+    }
+    return total;
 }
 
-uint64_t get_process_cpu_time(pid_t pid) { // TODO: need to check if the pid exists - if the stat_file is not failing
-    std::ifstream stat_file("/proc/" + std::to_string(pid) + "/stat");
-    if (!stat_file) {
-        throw;
+uint64_t get_process_cpu_time(pid_t pid) {
+    // build path to /proc/<pid>/stat
+    const std::string path = "/proc/" + std::to_string(pid) + "/stat";
+
+    std::string content;
+
+    // read the entire file (throws on failure)
+    try {
+        readFileContent(path, content);
+    }catch(...){
+        return 0;
     }
-    std::string line;
-    std::getline(stat_file, line);
 
-    std::istringstream iss(line);
-    std::string dummy;
-    int field_count = 0;
+    // split into lines and take the first one
+    auto lines = splitLines(content);
+    const std::string& firstLine = lines[0];
 
-    uint64_t utime = 0, stime = 0;
+    // split the line on whitespace into tokens
+    auto toks = splitTokens(firstLine);
 
-    while (iss >> dummy) {
-        ++field_count;
-        if (field_count == 14) { // utime is 14th field
-            utime = std::stoull(dummy);
-        } else if (field_count == 15) { // stime is 15th field
-            stime = std::stoull(dummy);
-            break;
-        }
-    }
+    uint64_t utime = std::stoull(toks[13]);
+    uint64_t stime = std::stoull(toks[14]);
     return utime + stime;
 }
 
-double get_mem_mb(pid_t pid){
-    std::ifstream f("/proc/" + std::to_string(pid) + "/statm");
-    size_t pages_resident = 0, size_pages = 0;
-    f >> size_pages >> pages_resident; // We wanna get only the pages_resident, so we put the first arg in a 'dummy' var
-    double bytes = pages_resident * sysconf(_SC_PAGESIZE);
+
+
+double get_mem_mb(pid_t pid) {
+    const std::string path = "/proc/" + std::to_string(pid) + "/statm";
+    std::string content;
+    try{
+        readFileContent(path, content);
+    }catch(...){
+        return 0;
+    }
+
+    auto toks = splitTokens(content);
+    if (toks.size() < 2) {
+        throw std::runtime_error("get_mem_mb: malformed statm file");
+    }
+
+    uint64_t pages_resident = std::stoull(toks[1]);
+
+    long page_size = sysconf(_SC_PAGESIZE);
+    double bytes = static_cast<double>(pages_resident) * page_size;
     return bytes / (1024.0 * 1024.0);
 }
 
-bool isExternalCommand(const std::string& command){
-    if (command.find('/') != std::string::npos) {
-        return access(command.c_str(), X_OK) == 0;
-    }
-
-    const char* pathEnv = std::getenv("PATH");
-    if (!pathEnv) return false;
-
-    std::stringstream ss(pathEnv);
-    std::string dir;
-    while (std::getline(ss, dir, ':')) {
-        if (dir.empty()) {
-            dir = ".";
-        }
-        std::string full = dir + "/" + command;
-        if (access(full.c_str(), X_OK) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
 
 bool isComplexCommand(std::string args_cmd[], const int numOfArgs){
     for(int i = 0; i < numOfArgs; i++){
@@ -328,4 +350,41 @@ std::string* vectorToStringArray(const std::vector<std::string>& vec) {
         arr[i] = vec[i];  // copy each string
     }
     return arr;
+}
+
+void readFileContent(const std::string& path, std::string& content) {
+    // Open the file for reading only
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd == -1) {
+        perror("smash error: open failed");
+        return;
+    }
+
+    constexpr size_t BUFFER_SIZE = 4096;
+    char buffer[BUFFER_SIZE];
+    ssize_t bytesRead;
+
+    // Repeatedly read until EOF
+    while ((bytesRead = read(fd, buffer, BUFFER_SIZE)) > 0) {
+        content.append(buffer, static_cast<size_t>(bytesRead));
+    }
+    if (bytesRead == -1) {
+        close(fd);
+        perror("smash error: read failed");
+        return;
+    }
+
+    close(fd);
+}
+
+std::vector<std::string> splitLines(const std::string& s) {
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start < s.size()) {
+        size_t pos = s.find('\n', start);
+        if (pos == std::string::npos) pos = s.size();
+        lines.emplace_back(s.substr(start, pos - start));
+        start = pos + 1;
+    }
+    return lines;
 }
